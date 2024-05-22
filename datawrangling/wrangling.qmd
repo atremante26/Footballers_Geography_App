@@ -1,0 +1,132 @@
+```{r warning = false}
+library(mosaic)
+library(tidyverse)
+library(mdsr)
+library(robotstxt)
+library(rvest)
+library(janitor)
+library(kableExtra)
+library(readr)
+```
+
+```{r}
+#Scrape 2021 player data
+big5_url <- 'https://fbref.com/en/comps/Big5/2020-2021/stats/players/2020-2021-Big-5-European-Leagues-Stats'
+
+paths_allowed(big5_url)
+
+big5_tables <- big5_url %>%
+  httr::GET(config = httr::config(ssl_verifypeer = FALSE)) %>%
+  read_html() %>%
+  html_nodes("table")
+
+big5_players <- big5_tables %>%
+  purrr::pluck(1) %>%
+  html_table()
+
+#Adjust column names
+names(big5_players) <- big5_players[1,]
+big5_players <- big5_players[-1,]
+
+#Fix abbreviations
+big5_players$Nation <- gsub("^[^A-Z]*", "", big5_players$Nation)
+big5_players$Comp <- gsub("^[^A-Z]*", "", big5_players$Comp)
+
+#Select relevant columns
+player_data <- big5_players[, 2:15]
+```
+
+```{r}
+# Read in CSV for player values
+player_values <- read_csv("../data:wrangling/players_val.csv")
+
+player_values <- player_values %>%
+  rename(Player = Name)
+```
+
+```{r}
+#Join player data with player values
+players_full <- player_data %>%
+  full_join(player_values, by = "Player")
+
+#Select columns for final dataset
+players_final <- players_full[, c(1:14, 18)]
+
+#Remove rows without values
+players_final <- na.omit(players_final)
+
+#Remove duplicate players (played for multiple clubs)
+players_final <- players_final %>%
+  distinct(Player, .keep_all = TRUE)
+
+#Rename columns, add 'Country' column for country where league is played-in
+players_final <- players_final %>%
+  rename(Age = `Age.x`,  
+         League = Comp) %>%
+  mutate(Value = as.numeric(gsub(",", "", .data[[colnames(players_final)[15]]])), #Create Value column
+         Country = case_when(
+           League == "Premier League" ~ "ENG",
+           League == "Bundesliga" ~ "GER",
+           League == "Serie A" ~ "ITA",
+           League == "Ligue 1" ~ "FRA",
+           League == "La Liga" ~ "ESP",
+           TRUE ~ NA_character_
+         ),
+         Nation = ifelse(Nation == "SCO", "ENG", Nation), #Modify for longitude/latitude
+         Mins = parse_number(Min)) %>% #Convert minutes to numeric
+  select(-c(10, 15))
+
+
+#Convert columns to numeric
+players_final$Age <- as.numeric(players_final$Age)
+players_final$Born <- as.numeric(players_final$Born)
+players_final$MP <- as.numeric(players_final$MP)
+players_final$Starts <- as.numeric(players_final$Starts)
+players_final$`90s` <- as.numeric(players_final$`90s`)
+players_final$Gls <- as.numeric(players_final$Gls)
+players_final$Ast <- as.numeric(players_final$Ast)
+players_final$`G+A` <- as.numeric(players_final$`G+A`)
+players_final$Value <- as.numeric(players_final$Value)
+```
+
+```{r}
+#Read in data with country abreviations (ex: ENG) and latitude/longitude
+countries_coor <- read_csv("../data:wrangling/countries_coordinates.csv")
+
+#Select abreviation, longitude, latitude
+coun_coor_df <- countries_coor %>%
+  select(Code = `Alpha-3 code`, Longitude = `Longitude (average)`, Latitude = `Latitude (average)`)
+
+#Modify abreviations
+coun_coor_df <- coun_coor_df %>%
+  mutate(Code = case_when(
+    Code == "GBR" ~ "ENG",
+    Code == "CHE" ~ "SUI",
+    Code == "DEU" ~ "GER",
+    Code == "DZA" ~ "ALG",
+    Code == "URY" ~ "URU",
+    Code == "GMB" ~ "GAM",
+    Code == "NLD" ~ "NED",
+    Code == "PRT" ~ "POR",
+    Code == "DNK" ~ "DEN",
+    Code == "GIN" ~ "GUI",
+    TRUE ~ Code
+  ))
+
+#Join with player data to add Nation lat/long
+final_data <- players_final %>%
+  left_join(coun_coor_df, by = c("Nation" = "Code")) %>%
+  rename(Nation_Long = Longitude, Nation_Lat = Latitude)
+
+#Join with player data to add Country lat/long
+final_data <- final_data %>%
+  left_join(coun_coor_df, by = c("Country" = "Code")) %>%
+  rename(Country_Long = Longitude, Country_Lat = Latitude)
+
+#Remove duplicates after join
+final_data <- final_data %>%
+  distinct(Player, .keep_all = TRUE)
+
+saveRDS(final_data, "../data:wrangling/final_data.Rds")
+
+```

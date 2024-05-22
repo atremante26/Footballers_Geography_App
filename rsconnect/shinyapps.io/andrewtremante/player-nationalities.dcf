@@ -1,0 +1,12 @@
+name: player-nationalities
+title: player-nationalities
+username: andrewtremante
+account: andrewtremante
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 11938434
+bundleId: 8578744
+url: https://andrewtremante.shinyapps.io/player-nationalities/
+version: 1
+asMultiple: FALSE
+asStatic: FALSE
